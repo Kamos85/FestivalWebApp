@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Serve the app locally and open it in Chrome. Stop with Ctrl+C.
+# Usage: ./run [port]   (default port 8000)
+
+set -euo pipefail
+
+PORT="${1:-8000}"
+URL="http://localhost:${PORT}/"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIR" &
+SERVER_PID=$!
+trap 'kill "$SERVER_PID" 2>/dev/null' EXIT INT TERM
+
+# Wait until the server answers (or give up after ~5 seconds).
+for _ in $(seq 50); do
+  curl -s -o /dev/null "$URL" && break
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "Server failed to start (is port $PORT already in use? Try: ./run 8001)" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+
+echo "Serving $URL  (Ctrl+C to stop)"
+
+if command -v google-chrome >/dev/null; then
+  google-chrome "$URL" >/dev/null 2>&1 &
+elif command -v chromium >/dev/null; then
+  chromium "$URL" >/dev/null 2>&1 &
+else
+  xdg-open "$URL" >/dev/null 2>&1 &
+fi
+
+wait "$SERVER_PID"

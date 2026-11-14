@@ -6,7 +6,8 @@ const LINE_SPACING = 1.1;          // fit mode: baseline-to-baseline distance, i
 const FIT_MARGIN = 0.03;           // fit mode: margin around the text, as a fraction of the screen
 const SCROLL_SPEED = 1.0;          // scroll mode: screen heights per second (at 100% letter width)
 const SCROLL_GAP = 1 / 3;          // scroll mode: gap between repeats, as a fraction of the screen width
-const MAX_BLINK_HZ = 3;            // full on/off cycles per second; keep at or below 3 for photosensitivity
+const MIN_BPM = 60;                // blink tempo range; colors swap on every beat
+const MAX_BPM = 180;               // 180 BPM = 3 swaps per second, within photosensitivity limits
 const DOUBLE_TAP_MS = 350;
 const STORAGE_KEY = 'festival-sign-settings';
 
@@ -25,13 +26,18 @@ const previewCtx = previewCanvas.getContext('2d');
 
 // ---------- Settings ----------
 
+// Slider value to blink tempo: below MIN_BPM means off (0).
+function blinkBpm(value) {
+  return value >= MIN_BPM ? Math.min(value, MAX_BPM) : 0;
+}
+
 function readSettings() {
   return {
     text: inputs.text.value.trim(),
     fit: inputs.fit.checked,
     fg: inputs.fg.value,
     bg: inputs.bg.value,
-    blink: Math.min(Number(inputs.blink.value) || 0, MAX_BLINK_HZ),
+    bpm: blinkBpm(Number(inputs.blink.value)),
     width: Number(inputs.width.value) || 100,
   };
 }
@@ -44,7 +50,7 @@ function loadSettings() {
     if (typeof saved.fit === 'boolean') inputs.fit.checked = saved.fit;
     if (typeof saved.fg === 'string') inputs.fg.value = saved.fg;
     if (typeof saved.bg === 'string') inputs.bg.value = saved.bg;
-    if (typeof saved.blink === 'number') inputs.blink.value = saved.blink;
+    if (typeof saved.bpm === 'number') inputs.blink.value = saved.bpm || MIN_BPM - 1;
     if (typeof saved.width === 'number') inputs.width.value = saved.width;
   } catch { /* storage unavailable or corrupt: keep defaults */ }
 }
@@ -59,7 +65,7 @@ function updateSetupUi() {
   const s = readSettings();
   drawPreview(s);
   widthValueEl.textContent = `${s.width}%`;
-  blinkValueEl.textContent = s.blink ? `${s.blink} Hz` : 'Off';
+  blinkValueEl.textContent = s.bpm ? `${s.bpm} BPM` : 'Off';
   showBtn.disabled = !s.text;
 }
 
@@ -263,9 +269,9 @@ function frame(now) {
     changed = true;
   }
 
-  // Colors swap twice per cycle: one cycle is "normal" then "inverted".
-  const nowInverted = settings.blink > 0 &&
-    Math.floor(((now - startTime) / 1000) * settings.blink * 2) % 2 === 1;
+  // Colors swap on every beat.
+  const nowInverted = settings.bpm > 0 &&
+    Math.floor(((now - startTime) / 60000) * settings.bpm) % 2 === 1;
   if (nowInverted !== inverted) { inverted = nowInverted; changed = true; }
 
   if (changed) draw();

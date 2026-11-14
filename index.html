@@ -44,8 +44,9 @@
     </label>
 
     <label class="field">
-      <span class="slider-label">Blink speed <output id="blink-value">Off</output></span>
-      <input id="blink" type="range" min="0" max="3" step="0.5" value="0">
+      <span class="slider-label">Blink tempo <output id="blink-value">Off</output></span>
+      <!-- The leftmost position (59) means off; 60–180 is the tempo in BPM. -->
+      <input id="blink" type="range" min="59" max="180" step="1" value="59">
     </label>
 
     <canvas id="preview" class="preview" aria-hidden="true"></canvas>

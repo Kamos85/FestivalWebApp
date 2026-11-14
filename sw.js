@@ -1,5 +1,5 @@
 // Bump this version whenever you change any file, so installed copies pick up the update.
-const CACHE = 'festival-sign-v4';
+const CACHE = 'festival-sign-v5';
 
 const FILES = [
   './',

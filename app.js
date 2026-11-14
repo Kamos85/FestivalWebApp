@@ -6,6 +6,7 @@ const LINE_SPACING = 1.1;          // fit mode: baseline-to-baseline distance, i
 const FIT_MARGIN = 0.03;           // fit mode: margin around the text, as a fraction of the screen
 const SCROLL_SPEED = 1.0;          // scroll mode: screen heights per second
 const SCROLL_GAP = 1 / 3;          // scroll mode: gap between repeats, as a fraction of the screen width
+const MAX_BLINK_HZ = 3;          // full on/off cycles per second; keep at or below 3 for photosensitivity
 const DOUBLE_TAP_MS = 350;
 const STORAGE_KEY = 'festival-sign-settings';
 
@@ -15,7 +16,8 @@ const displayEl = $('display');
 const canvas = $('canvas');
 const ctx = canvas.getContext('2d');
 const hintEl = $('hint');
-const inputs = { text: $('text'), fit: $('fit'), fg: $('fg'), bg: $('bg') };
+const inputs = { text: $('text'), fit: $('fit'), fg: $('fg'), bg: $('bg'), blink: $('blink') };
+const blinkValueEl = $('blink-value');
 const showBtn = $('show');
 const previewEl = $('preview');
 
@@ -27,6 +29,7 @@ function readSettings() {
     fit: inputs.fit.checked,
     fg: inputs.fg.value,
     bg: inputs.bg.value,
+    blink: Math.min(Number(inputs.blink.value) || 0, MAX_BLINK_HZ),
   };
 }
 
@@ -38,6 +41,7 @@ function loadSettings() {
     if (typeof saved.fit === 'boolean') inputs.fit.checked = saved.fit;
     if (typeof saved.fg === 'string') inputs.fg.value = saved.fg;
     if (typeof saved.bg === 'string') inputs.bg.value = saved.bg;
+    if (typeof saved.blink === 'number') inputs.blink.value = saved.blink;
   } catch { /* storage unavailable or corrupt: keep defaults */ }
 }
 
@@ -52,6 +56,7 @@ function updateSetupUi() {
   previewEl.textContent = s.text || 'Preview';
   previewEl.style.color = s.fg;
   previewEl.style.background = s.bg;
+  blinkValueEl.textContent = s.blink ? `${s.blink} Hz` : 'Off';
   showBtn.disabled = !s.text;
 }
 
@@ -135,6 +140,8 @@ let layout = null;
 let screenW = 0, screenH = 0;
 let scrollX = 0;
 let lastFrame = 0;
+let startTime = 0;
+let inverted = false;
 let rafId = 0;
 
 function resizeCanvas() {
@@ -153,9 +160,9 @@ function resizeCanvas() {
 }
 
 function draw() {
-  ctx.fillStyle = settings.bg;
+  ctx.fillStyle = inverted ? settings.fg : settings.bg;
   ctx.fillRect(0, 0, screenW, screenH);
-  ctx.fillStyle = settings.fg;
+  ctx.fillStyle = inverted ? settings.bg : settings.fg;
   ctx.font = font(layout.size);
   ctx.textBaseline = 'alphabetic';
 
@@ -180,12 +187,22 @@ function draw() {
 function frame(now) {
   const dt = lastFrame ? (now - lastFrame) / 1000 : 0;
   lastFrame = now;
+  if (!startTime) startTime = now;
+  let changed = false;
+
   if (layout.mode === 'scroll' && layout.scrolls) {
     const period = layout.width + screenW * SCROLL_GAP;
     scrollX -= SCROLL_SPEED * screenH * dt;
     if (scrollX <= -period) scrollX += period;
-    draw();
+    changed = true;
   }
+
+  // Colors swap twice per cycle: one cycle is "normal" then "inverted".
+  const nowInverted = settings.blink > 0 &&
+    Math.floor(((now - startTime) / 1000) * settings.blink * 2) % 2 === 1;
+  if (nowInverted !== inverted) { inverted = nowInverted; changed = true; }
+
+  if (changed) draw();
   rafId = requestAnimationFrame(frame);
 }
 
@@ -234,9 +251,11 @@ function showDisplay() {
 
   enterFullscreen();
   requestWakeLock();
+  inverted = false;
   resizeCanvas();
 
   lastFrame = 0;
+  startTime = 0;
   cancelAnimationFrame(rafId);
   rafId = requestAnimationFrame(frame);
 

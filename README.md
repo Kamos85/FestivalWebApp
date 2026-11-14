@@ -4,7 +4,9 @@ A tiny offline web app that shows big fullscreen text in your chosen colors, so 
 
 - **Fit to screen on:** text is shrunk and wrapped so it all fits.
 - **Fit to screen off:** letters fill the full screen height; text that is too wide scrolls.
-- Double-tap (or press back) to return to the setup screen.
+- Blink tempo (BPM): while the sign shows, tap left/right to change the tempo by 1 BPM,
+  tap the center on the beat to sync (3+ taps also set the tempo from your tapping).
+- Hold the sign (or press back) to return to the setup screen.
 
 Plain HTML/CSS/JS, no build step.
 

@@ -8,7 +8,9 @@ const SCROLL_SPEED = 1.0;          // scroll mode: screen heights per second (at
 const SCROLL_GAP = 1 / 3;          // scroll mode: gap between repeats, as a fraction of the screen width
 const MIN_BPM = 60;                // blink tempo range; colors swap on every beat
 const MAX_BPM = 180;               // 180 BPM = 3 swaps per second, within photosensitivity limits
-const DOUBLE_TAP_MS = 350;
+const LONG_PRESS_MS = 700;         // hold this long on the sign to go back to setup
+const TAP_RESET_MS = 2000;         // a pause longer than this starts a new tap-tempo sequence
+const TAP_COUNT = 8;               // tap tempo averages over at most this many taps
 const STORAGE_KEY = 'festival-sign-settings';
 
 const $ = (id) => document.getElementById(id);
@@ -173,7 +175,7 @@ let layout = null;
 let screenW = 0, screenH = 0;
 let scrollX = 0;
 let lastFrame = 0;
-let startTime = 0;
+let beatPos = 0;                   // beats elapsed since the sign opened (fractional)
 let inverted = false;
 let rafId = 0;
 
@@ -258,7 +260,6 @@ function drawPreview(s) {
 function frame(now) {
   const dt = lastFrame ? (now - lastFrame) / 1000 : 0;
   lastFrame = now;
-  if (!startTime) startTime = now;
   let changed = false;
 
   if (layout.mode === 'scroll' && layout.scrolls) {
@@ -269,9 +270,9 @@ function frame(now) {
     changed = true;
   }
 
-  // Colors swap on every beat.
-  const nowInverted = settings.bpm > 0 &&
-    Math.floor(((now - startTime) / 60000) * settings.bpm) % 2 === 1;
+  // Colors swap on every beat. Beats are accumulated so tempo changes don't cause a jump.
+  if (settings.bpm) beatPos += (dt * settings.bpm) / 60;
+  const nowInverted = settings.bpm > 0 && Math.floor(beatPos) % 2 === 1;
   if (nowInverted !== inverted) { inverted = nowInverted; changed = true; }
 
   if (changed) draw();
@@ -328,18 +329,27 @@ function showDisplay() {
   resizeCanvas();
 
   lastFrame = 0;
-  startTime = 0;
+  beatPos = 0;
+  tapTimes = [];
   cancelAnimationFrame(rafId);
   rafId = requestAnimationFrame(frame);
 
+  showHint(settings.bpm
+    ? 'Tap left/right: tempo −/+ · Tap center on the beat · Hold: back'
+    : 'Hold to go back', 4000);
+}
+
+function showHint(text, ms) {
+  hintEl.textContent = text;
   hintEl.classList.remove('hidden');
   clearTimeout(hintTimer);
-  hintTimer = setTimeout(() => hintEl.classList.add('hidden'), 2500);
+  hintTimer = setTimeout(() => hintEl.classList.add('hidden'), ms);
 }
 
 function hideDisplay() {
   if (displayEl.hidden) return;
   cancelAnimationFrame(rafId);
+  clearTimeout(pressTimer);
   displayEl.hidden = true;
   setupEl.hidden = false;
   updateSetupUi();  // the screen may have rotated while the sign was shown
@@ -356,15 +366,54 @@ function leaveDisplay() {
 
 window.addEventListener('popstate', hideDisplay);
 
-let lastTap = 0;
-canvas.addEventListener('pointerup', (e) => {
-  if (e.timeStamp - lastTap < DOUBLE_TAP_MS) {
-    lastTap = 0;
-    leaveDisplay();
-  } else {
-    lastTap = e.timeStamp;
+// ---------- Tempo controls on the sign ----------
+
+let tapTimes = [];
+
+function setBpm(bpm) {
+  settings.bpm = Math.min(Math.max(Math.round(bpm), MIN_BPM), MAX_BPM);
+  inputs.blink.value = settings.bpm;
+  saveSettings();
+  showHint(`${settings.bpm} BPM`, 1000);
+}
+
+// Start a new beat right now, so the colors swap on the tap.
+function syncBeat() {
+  beatPos = Math.floor(beatPos) + 1;
+  inverted = Math.floor(beatPos) % 2 === 1;
+  draw();
+}
+
+// Center tap: sync to the beat, and after 3+ steady taps also take over their tempo.
+function tapBeat(time) {
+  const sinceLast = time - tapTimes[tapTimes.length - 1];
+  if (tapTimes.length && !(sinceLast > 0 && sinceLast <= TAP_RESET_MS)) tapTimes = [];
+  tapTimes.push(time);
+  if (tapTimes.length > TAP_COUNT) tapTimes.shift();
+  syncBeat();
+  if (tapTimes.length >= 3) {
+    const avgMs = (tapTimes[tapTimes.length - 1] - tapTimes[0]) / (tapTimes.length - 1);
+    setBpm(60000 / avgMs);
   }
+}
+
+let pressTimer = 0;
+
+// Act on press (not release) so beat taps are as accurate as possible.
+canvas.addEventListener('pointerdown', (e) => {
+  clearTimeout(pressTimer);
+  pressTimer = setTimeout(leaveDisplay, LONG_PRESS_MS);
+  if (!settings.bpm) return;
+  const zone = e.clientX / screenW;
+  if (zone < 1 / 3) setBpm(settings.bpm - 1);
+  else if (zone > 2 / 3) setBpm(settings.bpm + 1);
+  else tapBeat(e.timeStamp);
 });
+
+for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
+  canvas.addEventListener(type, () => clearTimeout(pressTimer));
+}
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !displayEl.hidden) leaveDisplay();

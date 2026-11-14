@@ -114,11 +114,16 @@ h1 {
   font-weight: 400;
 }
 
+#width,
 #blink {
   width: 100%;
   height: 32px;
   margin: 0;
   accent-color: var(--accent);
+}
+
+#preview-text {
+  display: inline-block;
 }
 
 .preview {

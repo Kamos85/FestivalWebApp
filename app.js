@@ -4,9 +4,9 @@ const FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 const FONT_WEIGHT = 900;
 const LINE_SPACING = 1.1;          // fit mode: baseline-to-baseline distance, in font sizes
 const FIT_MARGIN = 0.03;           // fit mode: margin around the text, as a fraction of the screen
-const SCROLL_SPEED = 1.0;          // scroll mode: screen heights per second
+const SCROLL_SPEED = 1.0;          // scroll mode: screen heights per second (at 100% letter width)
 const SCROLL_GAP = 1 / 3;          // scroll mode: gap between repeats, as a fraction of the screen width
-const MAX_BLINK_HZ = 3;          // full on/off cycles per second; keep at or below 3 for photosensitivity
+const MAX_BLINK_HZ = 3;            // full on/off cycles per second; keep at or below 3 for photosensitivity
 const DOUBLE_TAP_MS = 350;
 const STORAGE_KEY = 'festival-sign-settings';
 
@@ -16,10 +16,12 @@ const displayEl = $('display');
 const canvas = $('canvas');
 const ctx = canvas.getContext('2d');
 const hintEl = $('hint');
-const inputs = { text: $('text'), fit: $('fit'), fg: $('fg'), bg: $('bg'), blink: $('blink') };
+const inputs = { text: $('text'), fit: $('fit'), fg: $('fg'), bg: $('bg'), blink: $('blink'), width: $('width') };
 const blinkValueEl = $('blink-value');
+const widthValueEl = $('width-value');
 const showBtn = $('show');
 const previewEl = $('preview');
+const previewTextEl = $('preview-text');
 
 // ---------- Settings ----------
 
@@ -30,6 +32,7 @@ function readSettings() {
     fg: inputs.fg.value,
     bg: inputs.bg.value,
     blink: Math.min(Number(inputs.blink.value) || 0, MAX_BLINK_HZ),
+    width: Number(inputs.width.value) || 100,
   };
 }
 
@@ -42,6 +45,7 @@ function loadSettings() {
     if (typeof saved.fg === 'string') inputs.fg.value = saved.fg;
     if (typeof saved.bg === 'string') inputs.bg.value = saved.bg;
     if (typeof saved.blink === 'number') inputs.blink.value = saved.blink;
+    if (typeof saved.width === 'number') inputs.width.value = saved.width;
   } catch { /* storage unavailable or corrupt: keep defaults */ }
 }
 
@@ -53,9 +57,11 @@ function saveSettings() {
 
 function updateSetupUi() {
   const s = readSettings();
-  previewEl.textContent = s.text || 'Preview';
+  previewTextEl.textContent = s.text || 'Preview';
+  previewTextEl.style.transform = `scaleX(${s.width / 100})`;
   previewEl.style.color = s.fg;
   previewEl.style.background = s.bg;
+  widthValueEl.textContent = `${s.width}%`;
   blinkValueEl.textContent = s.blink ? `${s.blink} Hz` : 'Off';
   showBtn.disabled = !s.text;
 }
@@ -64,13 +70,17 @@ function updateSetupUi() {
 
 const font = (size) => `${FONT_WEIGHT} ${size}px ${FONT_FAMILY}`;
 
-// Ink extents of a string at a given size (what is actually painted, not the em box).
+// Horizontal squeeze of the letters (1 = normal width). Set from the settings when the display opens.
+let stretch = 1;
+
+// Ink extents of a string at a given size (what is actually painted, not the em box),
+// with horizontal values already squeezed by `stretch`.
 function measureInk(text, size) {
   ctx.font = font(size);
   const m = ctx.measureText(text);
   return {
-    left: m.actualBoundingBoxLeft,
-    width: m.actualBoundingBoxLeft + m.actualBoundingBoxRight,
+    left: m.actualBoundingBoxLeft * stretch,
+    width: (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) * stretch,
     ascent: m.actualBoundingBoxAscent,
     descent: m.actualBoundingBoxDescent,
   };
@@ -159,6 +169,14 @@ function resizeCanvas() {
   draw();
 }
 
+// Draw text squeezed horizontally; x is the on-screen position of the text origin.
+function drawText(text, x, y) {
+  ctx.save();
+  ctx.scale(stretch, 1);
+  ctx.fillText(text, x / stretch, y);
+  ctx.restore();
+}
+
 function draw() {
   ctx.fillStyle = inverted ? settings.fg : settings.bg;
   ctx.fillRect(0, 0, screenW, screenH);
@@ -170,16 +188,16 @@ function draw() {
     let y = (screenH - layout.height) / 2 + layout.ascent;
     for (const line of layout.lines) {
       const ink = measureInk(line, layout.size);
-      ctx.fillText(line, (screenW - ink.width) / 2 + ink.left, y);
+      drawText(line, (screenW - ink.width) / 2 + ink.left, y);
       y += layout.size * LINE_SPACING;
     }
   } else if (!layout.scrolls) {
-    ctx.fillText(settings.text, (screenW - layout.width) / 2 + layout.left, layout.baseline);
+    drawText(settings.text, (screenW - layout.width) / 2 + layout.left, layout.baseline);
   } else {
     // Draw enough copies to cover the screen while scrolling.
     const period = layout.width + screenW * SCROLL_GAP;
     for (let x = scrollX; x < screenW; x += period) {
-      ctx.fillText(settings.text, x + layout.left, layout.baseline);
+      drawText(settings.text, x + layout.left, layout.baseline);
     }
   }
 }
@@ -192,7 +210,8 @@ function frame(now) {
 
   if (layout.mode === 'scroll' && layout.scrolls) {
     const period = layout.width + screenW * SCROLL_GAP;
-    scrollX -= SCROLL_SPEED * screenH * dt;
+    // Scale speed with letter width so the same number of letters pass per second.
+    scrollX -= SCROLL_SPEED * screenH * stretch * dt;
     if (scrollX <= -period) scrollX += period;
     changed = true;
   }
@@ -252,6 +271,7 @@ function showDisplay() {
   enterFullscreen();
   requestWakeLock();
   inverted = false;
+  stretch = settings.width / 100;
   resizeCanvas();
 
   lastFrame = 0;
